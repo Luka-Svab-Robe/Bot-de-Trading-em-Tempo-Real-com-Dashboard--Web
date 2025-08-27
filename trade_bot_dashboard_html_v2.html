@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard do Bot de Trade</title>
+    <!-- Incluindo a biblioteca Chart.js para o gráfico -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Incluindo a biblioteca cliente do Socket.IO -->
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <style>
+        /* Estilos gerais */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #121826;
+            color: #E0E0E0;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            color: #FFFFFF;
+            margin-bottom: 20px;
+        }
+
+        /* Container principal */
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Painel de controle e status */
+        .controls-status-panel {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: space-between;
+        }
+
+        .card {
+            background-color: #1A2035;
+            border-radius: 8px;
+            padding: 20px;
+            flex-grow: 1;
+            border: 1px solid #2A3045;
+        }
+
+        .card h2 {
+            margin-top: 0;
+            font-size: 16px;
+            color: #8A93A7;
+            text-transform: uppercase;
+        }
+
+        .card .value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #FFFFFF;
+        }
+
+        /* Estilos específicos para os sinais */
+        .signal-buy {
+            color: #28a745;
+        }
+
+        .signal-sell {
+            color: #dc3545;
+        }
+
+        .signal-hold {
+            color: #ffc107;
+        }
+
+        /* Botões de controle */
+        .controls .buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #startButton {
+            background-color: #007bff;
+            color: white;
+        }
+
+        #startButton:hover {
+            background-color: #0056b3;
+        }
+
+        #startButton:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        #stopButton {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        #stopButton:hover {
+            background-color: #a71d2a;
+        }
+
+        #stopButton:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        /* Gráfico e Logs */
+        .chart-log-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Container do Gráfico */
+        .chart-container {
+            background-color: #1A2035;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #2A3045;
+        }
+
+        /* Container de Logs */
+        .log-container {
+            background-color: #1A2035;
+            border-radius: 8px;
+            padding: 20px;
+            height: 250px;
+            overflow-y: auto;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            border: 1px solid #2A3045;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+        }
+
+        .log-info {
+            color: #87ceeb;
+        }
+
+        .log-strategy {
+            color: #ffc107;
+        }
+
+        .log-execution-buy {
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .log-execution-sell {
+            color: #dc3545;
+            font-weight: bold;
+        }
+
+        .log-error {
+            color: #ff6347;
+        }
+
+        .log-system {
+            color: #999;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>Dashboard do Bot de Trade (Cliente-Servidor)</h1>
+
+        <!-- Painel de Controle e Status -->
+        <div class="controls-status-panel">
+            <div class="card controls">
+                <h2>Controles</h2>
+                <div class="buttons">
+                    <button id="startButton">Iniciar</button>
+                    <button id="stopButton" disabled>Parar</button>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Preço Atual (BTCUSD)</h2>
+                <p class="value" id="currentPrice">$0.00</p>
+            </div>
+            <div class="card">
+                <h2>Sinal da Estratégia</h2>
+                <p class="value" id="currentSignal">Aguardando...</p>
+            </div>
+            <div class="card">
+                <h2>Status</h2>
+                <p class="value" id="botStatus">Parado</p>
+            </div>
+        </div>
+
+        <!-- Gráfico e Logs -->
+        <div class="chart-log-container">
+            <div class="chart-container">
+                <canvas id="priceChart"></canvas>
+            </div>
+            <div class="log-container" id="logContainer">
+                <div class="log-entry log-system">Aguardando conexão com o servidor...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Elementos da UI ---
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const currentPriceEl = document.getElementById('currentPrice');
+        const currentSignalEl = document.getElementById('currentSignal');
+        const botStatusEl = document.getElementById('botStatus');
+        const logContainer = document.getElementById('logContainer');
+        const chartCanvas = document.getElementById('priceChart');
+
+        // --- Configurações ---
+        const SERVER_URL = "http://127.0.0.1:5000";
+        const SHORT_WINDOW = 5;
+        const LONG_WINDOW = 12;
+
+        // --- Variáveis de Estado ---
+        let priceChart;
+        const socket = io(SERVER_URL);
+
+        // --- FUNÇÕES DA INTERFACE ---
+
+        function addLog(message, type) {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll
+        }
+
+        function updateSignalUI(signal) {
+            currentSignalEl.textContent = signal || 'N/A';
+            currentSignalEl.className = 'value'; // Reseta classes
+            if (signal === 'BUY') {
+                currentSignalEl.classList.add('signal-buy');
+            } else if (signal === 'SELL') {
+                currentSignalEl.classList.add('signal-sell');
+            } else {
+                currentSignalEl.classList.add('signal-hold');
+            }
+        }
+
+        function initializeChart() {
+            const ctx = chartCanvas.getContext('2d');
+            priceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Preço (BTCUSD)',
+                            data: [],
+                            borderColor: '#007bff',
+                            backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.1
+                        },
+                        {
+                            label: `Média Móvel Curta (${SHORT_WINDOW})`,
+                            data: [],
+                            borderColor: '#ffc107',
+                            borderWidth: 1.5,
+                            borderDash: [5, 5],
+                        },
+                        {
+                            label: `Média Móvel Longa (${LONG_WINDOW})`,
+                            data: [],
+                            borderColor: '#dc3545',
+                            borderWidth: 1.5,
+                        }
+                    ]
+                },
+                options: {
+                    scales: {
+                        y: { beginAtZero: false }
+                    }
+                }
+            });
+        }
+
+        function updateChart(timestamp, price, shortMA, longMA) {
+            if (!priceChart) return;
+            priceChart.data.labels.push(timestamp);
+            priceChart.data.datasets[0].data.push(price);
+            priceChart.data.datasets[1].data.push(shortMA);
+            priceChart.data.datasets[2].data.push(longMA);
+
+            const maxPoints = 50;
+            if (priceChart.data.labels.length > maxPoints) {
+                priceChart.data.labels.shift();
+                priceChart.data.datasets.forEach(dataset => dataset.data.shift());
+            }
+
+            priceChart.update();
+        }
+
+        function resetUI() {
+            if (priceChart) priceChart.destroy();
+            initializeChart();
+            logContainer.innerHTML = '';
+            addLog('Aguardando início da simulação...', 'system');
+            botStatusEl.textContent = 'Parado';
+            currentPriceEl.textContent = '$0.00';
+            updateSignalUI('Aguardando...');
+        }
+
+        // --- LÓGICA DE COMUNICAÇÃO COM O SERVIDOR ---
+
+        // Eventos do Socket.IO
+        socket.on('connect', () => {
+            addLog('Conectado ao servidor do bot!', 'system');
+        });
+
+        socket.on('log', (data) => {
+            addLog(data.message, data.type);
+        });
+
+        socket.on('status_update', (data) => {
+            botStatusEl.textContent = data.status;
+            if (data.status === 'Rodando') {
+                currentPriceEl.textContent = `$${data.price.toFixed(2)}`;
+                updateSignalUI(data.signal);
+                updateChart(data.timestamp, data.price, data.short_ma, data.long_ma);
+            }
+        });
+
+        socket.on('disconnect', () => {
+            addLog('Desconectado do servidor.', 'error');
+            botStatusEl.textContent = 'Desconectado';
+            startButton.disabled = true;
+            stopButton.disabled = true;
+        });
+
+        // Controles de Eventos (API Calls)
+        startButton.addEventListener('click', async () => {
+            try {
+                const response = await fetch(`${SERVER_URL}/start`, { method: 'POST' });
+                const data = await response.json();
+                if (response.ok) {
+                    resetUI();
+                    addLog('Comando INICIAR enviado com sucesso.', 'system');
+                    startButton.disabled = true;
+                    stopButton.disabled = false;
+                } else {
+                    addLog(`Erro ao iniciar: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                addLog('Falha ao comunicar com o servidor para iniciar.', 'error');
+            }
+        });
+
+        stopButton.addEventListener('click', async () => {
+            try {
+                const response = await fetch(`${SERVER_URL}/stop`, { method: 'POST' });
+                const data = await response.json();
+                if (response.ok) {
+                    addLog('Comando PARAR enviado com sucesso.', 'system');
+                    startButton.disabled = false;
+                    stopButton.disabled = true;
+                } else {
+                    addLog(`Erro ao parar: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                addLog('Falha ao comunicar com o servidor para parar.', 'error');
+            }
+        });
+
+        // Inicializa o gráfico quando a página carrega
+        window.onload = initializeChart;
+
+    </script>
+</body>
+
+</html>
